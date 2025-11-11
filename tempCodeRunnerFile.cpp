@@ -9,7 +9,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <map> 
-#include <stdexcept> // Include for exceptions
+#include <stdexcept> 
 
 using namespace std;
 
@@ -20,6 +20,7 @@ const string TRAIN_FILE = "trains_data.txt";
 const string BOOKING_FILE = "bookings_data.txt";
 const string PNR_FILE = "pnr_counter.txt";
 const string USER_FILE = "users_data.txt"; 
+const string TX_LOG_FILE = "transactions.log"; // Transaction History File
 
 // Function to clear input buffer after failed read
 void clearInputBuffer() {
@@ -96,7 +97,6 @@ struct SeatAllocation {
         }
         try {
             if (parts.size() == 2) {
-                // Ensure conversion is safe if deserialize is called directly
                 return {parts[0], stoi(parts[1])};
             }
         } catch (const std::exception& e) {
@@ -106,20 +106,42 @@ struct SeatAllocation {
     }
 };
 
-// --- NEW CLASS 3: Route (Schedule/Timetable Abstraction) ---
+// --- NEW STRUCT 3a: Stop (Schedule Detail) ---
+struct Stop {
+    string stationName;
+    string arrivalTime;
+    string departureTime;
+    // In a real system, this would also include distance/fare information.
+};
+
+// --- NEW CLASS 3b: Route (Schedule/Timetable Abstraction) ---
 class Route {
 private:
     string sourceStation;
     string destinationStation;
+    vector<Stop> schedule; // New schedule detail
 public:
     Route(const string& src, const string& dest)
-        : sourceStation(src), destinationStation(dest) {}
+        : sourceStation(src), destinationStation(dest) {
+        // Dummy schedule for demonstration
+        schedule.push_back({sourceStation, "N/A", "08:00"});
+        schedule.push_back({"MidPoint", "12:00", "12:15"});
+        schedule.push_back({destinationStation, "18:00", "N/A"});
+    }
 
     string getSource() const { return sourceStation; }
     string getDestination() const { return destinationStation; }
 
+    void displaySchedule() const {
+        cout << "        Schedule:" << endl;
+        for(const auto& s : schedule) {
+            cout << "        - " << s.stationName << " | Arr: " << s.arrivalTime << " | Dep: " << s.departureTime << endl;
+        }
+    }
+
     // Serialization: Src|Dest
     string serialize() const {
+        // Simplified serialization, ignoring full schedule for now
         return sourceStation + "|" + destinationStation;
     }
     static Route deserialize(const string& data) {
@@ -265,6 +287,7 @@ public:
         cout << "    Route: " << route.getSource() << " -> " << route.getDestination() << endl;
         cout << "    Total Seats: " << totalSeats << ", Base Fare: ₹" << fixed << setprecision(2) << baseFare << endl;
         cout << "    Pantry Car: " << (hasPantryCar ? "Yes" : "No") << endl;
+        route.displaySchedule(); // Displaying schedule
     }
     
     // Overridden serialization
@@ -277,6 +300,18 @@ public:
     bool getPantryStatus() const { return hasPantryCar; }
 };
 
+// --- NEW STRUCT 6a: WaitlistEntry ---
+struct WaitlistEntry {
+    string pnr;
+    string date;
+    int numSeats;
+    int rank; // Waitlist position
+
+    string serialize() const {
+        return pnr + "|" + date + "|" + to_string(numSeats) + "|" + to_string(rank);
+    }
+};
+
 // --- 6. Booking/Ticket Class ---
 class Booking {
 private:
@@ -285,12 +320,12 @@ private:
     string dateOfJourney;
     vector<Passenger> passengers;
     double totalFare;
-    string status; // Confirmed/Cancelled
+    string status; // Confirmed/Cancelled/Waitlist
 
 public:
     // Constructor
-    Booking(const string& pnr, const string& tNum, const string& date, const vector<Passenger>& p_list, double fare)
-        : pnrNumber(pnr), trainNumber(tNum), dateOfJourney(date), passengers(p_list), totalFare(fare), status("Confirmed") {}
+    Booking(const string& pnr, const string& tNum, const string& date, const vector<Passenger>& p_list, double fare, const string& initialStatus = "Confirmed")
+        : pnrNumber(pnr), trainNumber(tNum), dateOfJourney(date), passengers(p_list), totalFare(fare), status(initialStatus) {}
 
     // Default Constructor for File Loading
     Booking() : pnrNumber(""), trainNumber(""), dateOfJourney(""), totalFare(0.0), status("") {}
@@ -305,7 +340,7 @@ public:
     // Mutator
     void setStatus(const string& newStatus) { status = newStatus; }
 
-    // Display
+    // Display (Also handles viewing confirmed/waitlist status)
     void displayBooking() const {
         cout << "\n    --- Booking Details (PNR: " << pnrNumber << ") ---" << endl;
         cout << "    Train Number: " << trainNumber << ", Date: " << dateOfJourney << endl;
@@ -458,9 +493,10 @@ public:
         cout << "2. View Train Availability by Date" << endl;
         cout << "3. **Add New Express Train**" << endl;
         cout << "4. Remove Train" << endl;
-        cout << "5. View All Bookings (Placeholder)" << endl;
-        cout << "6. **Switch User**" << endl; // Updated option
-        cout << "7. Exit System" << endl;
+        cout << "5. **View All Bookings**" << endl; 
+        cout << "6. Process Waitlist (Manual)" << endl;
+        cout << "7. **Switch User**" << endl; 
+        cout << "8. Exit System" << endl;
         cout << "----------------------------------------------" << endl;
         cout << "Enter your choice: ";
     }
@@ -480,11 +516,12 @@ public:
         cout << "🎫 **User Menu** 🎫" << endl;
         cout << "==============================================" << endl;
         cout << "1. Search Trains by Route" << endl;
-        cout << "2. **Book a Ticket**" << endl;
+        cout << "2. **Book New Ticket (Multi-Group)**" << endl; // Updated for coordination
         cout << "3. View Booking by PNR" << endl;
-        cout << "4. **Cancel Booking**" << endl;
-        cout << "5. **Switch User**" << endl; // Updated option
-        cout << "6. Exit System" << endl;
+        cout << "4. **Cancel Booking (with Refund)**" << endl; 
+        cout << "5. View Transaction History" << endl; 
+        cout << "6. **Switch User**" << endl; 
+        cout << "7. Exit System" << endl; 
         cout << "----------------------------------------------" << endl;
         cout << "Enter your choice: ";
     }
@@ -494,14 +531,46 @@ public:
     }
 };
 
-// --- 11. RailwayManager Class (Singleton/System) ---
+// --- NEW CLASS 11: PaymentGateway (Mock Transaction) ---
+class PaymentGateway {
+public:
+    // Mock success/failure for transactional simulation
+    bool processPayment(double amount) {
+        cout << "[Payment] Attempting payment of ₹" << fixed << setprecision(2) << amount << "... ";
+        if (rand() % 5 != 0) { // 80% success rate
+            cout << "✅ SUCCESS." << endl;
+            return true;
+        } else {
+            cout << "❌ FAILED. (Simulated)" << endl;
+            return false;
+        }
+    }
+    
+    void processRefund(double amount) {
+        cout << "[Payment] Processing refund of ₹" << fixed << setprecision(2) << amount << "... ✅ DONE." << endl;
+    }
+
+    // Mock Transaction logging (Simple Write-Ahead Log simulation)
+    void logTransaction(const string& pnr, const string& action, const string& status) {
+        ofstream logFile(TX_LOG_FILE, ios::app);
+        if (logFile.is_open()) {
+            time_t now = time(0);
+            logFile << ctime(&now) << "|" << pnr << "|" << action << "|" << status << endl;
+        }
+    }
+};
+
+
+// --- 12. RailwayManager Class (Singleton/System) ---
 // Handles all data management, persistence, and core logic.
 class RailwayManager {
 private:
     vector<Train*> trains; 
     vector<Booking> bookings; 
-    vector<User*> users; // Stores User objects (Admin/Customer)
-    PNRGenerator pnrGenerator; // Using the dedicated PNRGenerator class
+    vector<User*> users; 
+    PNRGenerator pnrGenerator; 
+    PaymentGateway paymentGateway; // New Payment Gateway instance
+    map<string, vector<WaitlistEntry>> waitlist; // Key: TrainNum|Date -> List of entries
 
     // Private Constructor for Singleton
     RailwayManager() {
@@ -517,6 +586,71 @@ private:
         }
         return nullptr;
     }
+
+    // --- Waitlist and Promotion Logic ---
+
+    // Finds a mutable reference to the booking given a PNR
+    Booking* findBooking(const string& pnr) {
+        auto it = find_if(bookings.begin(), bookings.end(), 
+                          [&pnr](const Booking& b){ return b.getPNR() == pnr; });
+        return (it != bookings.end()) ? &(*it) : nullptr;
+    }
+
+    void placeOnWaitlist(const Booking& newBooking) {
+        string key = newBooking.getTrainNumber() + "|" + newBooking.getDate();
+        
+        WaitlistEntry entry;
+        entry.pnr = newBooking.getPNR();
+        entry.date = newBooking.getDate();
+        entry.numSeats = newBooking.getNumPassengers();
+        entry.rank = waitlist[key].empty() ? 1 : waitlist[key].back().rank + 1;
+
+        waitlist[key].push_back(entry);
+        
+        cout << "\n✅ Booking **" << entry.pnr << "** placed on Waitlist (WL #" << entry.rank << ")." << endl;
+    }
+
+    void promoteWaitlist(const string& date, Train* train, int availableSeats) {
+        string key = train->getTrainNumber() + "|" + date;
+        if (!waitlist.count(key) || waitlist[key].empty() || availableSeats <= 0) return;
+
+        int seatsToPromote = availableSeats;
+        
+        // Use a temporary list for promotion to avoid modifying the map while iterating
+        vector<WaitlistEntry> remainingWL;
+        bool promoted = false;
+
+        for (const auto& entry : waitlist[key]) {
+            if (seatsToPromote >= entry.numSeats) {
+                // Promote this entire entry
+                Booking* booking = findBooking(entry.pnr);
+                if (booking && booking->getStatus() == "Waitlist") {
+                    // 1. Commit provisional seat (uses bookSeat logic to consume newly available slot)
+                    if (train->bookSeat(date, entry.numSeats)) {
+                        // 2. Update booking status
+                        booking->setStatus("Confirmed");
+                        cout << "\n🌟 PROMOTION: PNR " << entry.pnr << " CONFIRMED (" << entry.numSeats << " seats) from WL #" << entry.rank << "!" << endl;
+                        seatsToPromote -= entry.numSeats;
+                        promoted = true;
+                    } else {
+                        // Promotion failed unexpectedly (rollback) - shouldn't happen if availableSeats is correct
+                        remainingWL.push_back(entry);
+                    }
+                }
+            } else {
+                // Not enough seats for this entry, keep it in the list
+                remainingWL.push_back(entry);
+            }
+        }
+
+        if (promoted) {
+            // Update the waitlist map with the remaining entries (re-rank them if necessary)
+            waitlist[key] = remainingWL; 
+            cout << "Updated Waitlist for " << train->getTrainNumber() << ": " << remainingWL.size() << " entries remaining." << endl;
+            saveData(); // Persist changes
+        }
+    }
+
 
     // --- File Persistence Implementation ---
     void saveUsers() const {
@@ -577,6 +711,10 @@ private:
             }
             bookingFile.close();
         }
+        
+        // Save Waitlist (Simplified: save waitlist map structure)
+        // Highly simplified persistence for demo
+        
         saveUsers(); // Save users
     }
 
@@ -623,7 +761,12 @@ private:
         ifstream bookingFile(BOOKING_FILE);
         while (getline(bookingFile, line)) {
             if (!line.empty()) {
-                bookings.push_back(Booking::deserialize(line));
+                Booking loadedBooking = Booking::deserialize(line);
+                // If loaded booking is WL, re-add to the in-memory waitlist map
+                if (loadedBooking.getStatus() == "Waitlist") {
+                    placeOnWaitlist(loadedBooking);
+                }
+                bookings.push_back(loadedBooking);
             }
         }
         
@@ -631,7 +774,7 @@ private:
         
         // Add initial dummy data if files are empty
         if (trains.empty()) {
-            trains.push_back(new ExpressTrain("ET001", "Fast Express", Route("CityA", "CityB"), 100, 55.00, true));
+            trains.push_back(new ExpressTrain("ET001", "Fast Express", Route("CityA", "CityB"), 10, 55.00, true)); // Reduced capacity for easy WL testing
             trains.push_back(new ExpressTrain("SR205", "Slow Runner", Route("CityB", "CityC"), 50, 75.50, false));
         }
     }
@@ -651,7 +794,6 @@ public:
     User* authenticate(const string& username, const string& password) const {
         for (User* user : users) {
             if (user->getUsername() == username) {
-                // Only pass the password to the user object's authenticate method
                 if (user->authenticate(password)) { 
                     return user;
                 }
@@ -673,7 +815,6 @@ public:
         saveData(); 
     }
     
-    // (Admin Feature)
     bool removeTrain(const string& tNum) {
         auto it = remove_if(trains.begin(), trains.end(), 
                             [&tNum](Train* t){ return t->getTrainNumber() == tNum; });
@@ -708,6 +849,62 @@ public:
         }
     }
     
+    // FIX: Implementation for View All Bookings (Admin Report)
+    void viewAllBookings() const {
+        cout << "\n==============================================" << endl;
+        cout << "📊 **ADMIN REPORT: ALL BOOKINGS**" << endl;
+        cout << "==============================================" << endl;
+
+        if (bookings.empty()) {
+            cout << "No bookings found in the system." << endl;
+            return;
+        }
+
+        cout << left << setw(15) << "PNR" 
+             << setw(10) << "Train"
+             << setw(15) << "Date"
+             << setw(10) << "Seats"
+             << setw(15) << "Fare (₹)"
+             << setw(15) << "Status" << endl;
+        cout << string(74, '-') << endl;
+
+        for (const auto& booking : bookings) {
+            cout << left << setw(15) << booking.getPNR() 
+                 << setw(10) << booking.getTrainNumber()
+                 << setw(15) << booking.getDate()
+                 << setw(10) << booking.getNumPassengers()
+                 << setw(15) << fixed << setprecision(2) << booking.getTotalFare()
+                 << setw(15) << booking.getStatus() << endl;
+        }
+        cout << string(74, '-') << endl;
+    }
+
+    // NEW FEATURE: View Transaction History for a PNR
+    void viewTransactionHistory(const string& pnr) const {
+        ifstream logFile(TX_LOG_FILE);
+        string line;
+        bool found = false;
+
+        cout << "\n==============================================" << endl;
+        cout << "📜 **TRANSACTION HISTORY FOR PNR: " << pnr << "**" << endl;
+        cout << "==============================================" << endl;
+
+        while (getline(logFile, line)) {
+            // Find the PNR in the line (simplified search for the demo)
+            if (line.find(pnr) != string::npos) {
+                cout << line;
+                found = true;
+            }
+        }
+        logFile.close();
+
+        if (!found) {
+            cout << "No transaction records found for this PNR." << endl;
+        } else {
+            cout << "----------------------------------------------" << endl;
+        }
+    }
+    
     void searchTrain(const string& src, const string& dest, const string& date) {
         cout << "\n## Search Results (" << src << " to " << dest << " on " << date << ") ##" << endl;
         bool found = false;
@@ -727,22 +924,96 @@ public:
         }
     }
 
-    void bookTicket(const string& tNum, const string& date, int numPassengers) {
+    // NEW FUNCTION: Handles the logic for a single train booking
+    void bookSingleTicket(const string& tNum, const string& date, const vector<Passenger>& passengers) {
         Train* selectedTrain = findTrain(tNum);
+        int numPassengers = passengers.size();
 
         if (!selectedTrain) {
-            cout << "\n❌ Booking failed. Train **" << tNum << "** not found." << endl;
+            cout << "    ❌ Booking Failed (Train not found)." << endl;
+            return;
+        }
+
+        double fare = selectedTrain->getBaseFare() * numPassengers;
+        string pnr = pnrGenerator.generate(); 
+        string finalStatus = "Waitlist"; 
+
+        paymentGateway.logTransaction(pnr, "BOOKING_ATTEMPT", "PENDING_PAYMENT");
+        
+        if (selectedTrain->getAvailableSeats(date) >= numPassengers) {
+            if (paymentGateway.processPayment(fare)) {
+                selectedTrain->bookSeat(date, numPassengers);
+                finalStatus = "Confirmed";
+                paymentGateway.logTransaction(pnr, "PAYMENT_SUCCESS", "COMMITTED");
+            } else {
+                paymentGateway.logTransaction(pnr, "PAYMENT_FAILED", "ROLLED_BACK");
+                cout << "    ❌ Transaction failed: Payment declined (Train " << tNum << "). Ticket NOT issued." << endl;
+                return;
+            }
+        } else {
+             if (paymentGateway.processPayment(fare)) {
+                paymentGateway.logTransaction(pnr, "PAYMENT_SUCCESS", "WAITLISTED");
+             } else {
+                paymentGateway.logTransaction(pnr, "PAYMENT_FAILED", "ROLLED_BACK");
+                cout << "    ❌ Transaction failed: Payment declined (Train " << tNum << "). Ticket NOT issued." << endl;
+                return;
+             }
+        }
+        
+        // Finalize Booking
+        Booking newBooking(pnr, tNum, date, passengers, fare, finalStatus); 
+        bookings.push_back(newBooking);
+
+        if (finalStatus == "Waitlist") {
+            placeOnWaitlist(newBooking);
+        }
+        
+        cout << "\n    ✅ GROUP BOOKED! PNR: **" << pnr << "** | Status: " << finalStatus << endl;
+        saveData();
+    }
+    
+    // COORDINATOR FUNCTION: Replaces the old bookTicket
+    void coordinateMultipleBookings() {
+        int totalGroups;
+        cout << "\n==============================================" << endl;
+        cout << "🎫 **MULTI-GROUP TICKET COORDINATOR**" << endl;
+        cout << "==============================================" << endl;
+        cout << "How many separate groups/trains do you wish to book? ";
+        
+        if (!(cin >> totalGroups) || totalGroups <= 0 || totalGroups > 5) {
+            cout << "\n❌ Invalid group count. Returning to menu." << endl;
+            clearInputBuffer();
             return;
         }
         
-        if (selectedTrain->bookSeat(date, numPassengers)) {
-            vector<Passenger> newPassengers;
+        vector<Passenger> allPassengers;
+        
+        for (int groupIndex = 1; groupIndex <= totalGroups; ++groupIndex) {
+            string tNum, date, dest;
+            int numPassengers;
             
-            // Collect passenger details
+            cout << "\n--- Group " << groupIndex << " Details ---" << endl;
+            cout << "Enter Train Number: "; cin >> tNum;
+            cout << "Enter Date of Journey (MM/DD/YYYY): "; cin >> date;
+            
+            if (!isValidDate(date)) { 
+                cout << "❌ Invalid Date Format. Skipping Group " << groupIndex << "." << endl; 
+                continue; 
+            }
+            
+            cout << "Number of Passengers in this group (max 6): "; 
+            if (!(cin >> numPassengers) || numPassengers <= 0 || numPassengers > 6) {
+                cout << "❌ Invalid passenger count. Skipping Group " << groupIndex << "." << endl;
+                clearInputBuffer();
+                continue;
+            }
+            
+            vector<Passenger> groupPassengers;
+            
             for (int i = 0; i < numPassengers; ++i) {
                 string name, gender;
                 int age;
-                cout << "    --- Passenger " << (i+1) << " Details ---" << endl;
+                cout << "    --- Passenger " << (i+1) << " Details (Group " << groupIndex << ") ---" << endl;
                 cout << "    Name: "; cin.ignore(); getline(cin, name);
                 cout << "    Age: "; 
                 while (!(cin >> age) || age <= 0 || age >= 120) {
@@ -750,40 +1021,66 @@ public:
                     clearInputBuffer();
                 }
                 cout << "    Gender (M/F/O): "; cin >> gender;
-                newPassengers.emplace_back(name, age, gender);
+                groupPassengers.emplace_back(name, age, gender);
             }
             
-            double fare = selectedTrain->getBaseFare() * numPassengers;
-            string pnr = pnrGenerator.generate(); // Use the dedicated PNR generator
-            
-            Booking newBooking(pnr, tNum, date, newPassengers, fare);
-            bookings.push_back(newBooking);
-            
-            cout << "\n✅ **Booking successful!** PNR: **" << pnr << "**" << endl;
-            newBooking.displayBooking();
-            saveData();
-        } else {
-            cout << "\n❌ Booking failed. Only **" << selectedTrain->getAvailableSeats(date) << "** seats available on " << date << "." << endl;
+            // Call the core single-booking logic for this group
+            bookSingleTicket(tNum, date, groupPassengers);
         }
+        
+        cout << "\n==============================================" << endl;
+        cout << "✅ **COORDINATION COMPLETE.**" << endl;
+        cout << "==============================================" << endl;
     }
+
 
     void cancelBooking(const string& pnr) {
         auto it = find_if(bookings.begin(), bookings.end(), 
                           [&pnr](const Booking& b){ return b.getPNR() == pnr; });
         
         if (it != bookings.end()) {
-            if (it->getStatus() == "Confirmed") {
-                Train* selectedTrain = findTrain(it->getTrainNumber());
+            string currentStatus = it->getStatus();
+            Train* selectedTrain = findTrain(it->getTrainNumber());
 
+            // 1. Transaction Log Start
+            paymentGateway.logTransaction(pnr, "CANCELLATION_ATTEMPT", "PENDING_REFUND");
+
+            if (currentStatus == "Confirmed") {
+                // 2. Process Refund and Free Seat
                 if (selectedTrain) {
                     selectedTrain->cancelSeat(it->getDate(), it->getNumPassengers());
+                    
+                    // 3. Process Waitlist Promotion
+                    int freedSeats = it->getNumPassengers();
+                    int available = selectedTrain->getAvailableSeats(it->getDate());
+                    
+                    cout << "\n[Promotion Check] " << freedSeats << " seat(s) freed." << endl;
+                    promoteWaitlist(it->getDate(), selectedTrain, available);
+
+                    // 4. Finalize Booking and Refund
+                    double refund = it->getTotalFare() * 0.8; // 80% refund mock
+                    paymentGateway.processRefund(refund); // Display refund
+                    
                     it->setStatus("Cancelled");
+                    paymentGateway.logTransaction(pnr, "CANCELLATION_SUCCESS", "COMMITTED");
+                    
                     cout << "\n✅ **Cancellation successful** for PNR: **" << pnr << "**" << endl;
-                    cout << "    Refund amount: ₹" << it->getTotalFare() << endl;
+                    cout << "    Refund amount: ₹" << fixed << setprecision(2) << refund << endl;
                     saveData();
                 } else {
                     cout << "\n❌ Cancellation failed. Associated Train not found." << endl;
                 }
+            } else if (currentStatus == "Waitlist") {
+                // Remove from waitlist map (simplified: 100% refund for WL)
+                double refund = it->getTotalFare();
+                paymentGateway.processRefund(refund); // Display refund
+
+                it->setStatus("Cancelled");
+                paymentGateway.logTransaction(pnr, "CANCELLATION_SUCCESS_WL", "COMMITTED");
+
+                cout << "\n✅ **Waitlist cancellation successful** for PNR: **" << pnr << "**" << endl;
+                cout << "    Refund amount: ₹" << fixed << setprecision(2) << refund << endl;
+                saveData();
             } else {
                  cout << "\n❌ Booking " << pnr << " is already **" << it->getStatus() << "**." << endl;
             }
@@ -802,6 +1099,22 @@ public:
             cout << "\n❌ PNR **" << pnr << "** not found." << endl;
         }
     }
+
+    void processWaitlistManual(const string& tNum, const string& date) {
+        Train* train = findTrain(tNum);
+        if (!train) {
+            cout << "❌ Train not found." << endl;
+            return;
+        }
+
+        int available = train->getAvailableSeats(date);
+        if (available > 0) {
+            cout << "\n--- Manually Processing Waitlist for " << tNum << " on " << date << " ---" << endl;
+            promoteWaitlist(date, train, available);
+        } else {
+            cout << "No seats available to promote waitlist." << endl;
+        }
+    }
     
     // Destructor to clean up dynamically allocated Train objects and Users
     ~RailwayManager() {
@@ -814,7 +1127,7 @@ public:
     }
 };
 
-// --- 12. Main Entry Point ---
+// --- 13. Main Entry Point ---
 
 void handleAddTrain(RailwayManager& manager) {
     cout << "\n--- Add New Express Train ---" << endl;
@@ -866,17 +1179,9 @@ void runUserActions(RailwayManager& manager, bool& running, User* currentUser, b
             manager.searchTrain(tempStr1, tempStr2, tempStr3);
             break;
 
-        case 2: // Book Ticket
-            cout << "Enter Train Number to book: "; cin >> tempStr1;
-            cout << "Enter Date of Journey (MM/DD/YYYY): "; cin >> tempStr2;
-            if (!isValidDate(tempStr2)) { cout << "❌ Invalid Date Format." << endl; break; }
-            cout << "Enter Number of Passengers (max 6): "; 
-            if (!(cin >> tempInt) || tempInt <= 0 || tempInt > 6) {
-                cout << "\n❌ Invalid number of passengers (1-6 allowed)." << endl;
-                clearInputBuffer();
-                break;
-            }
-            manager.bookTicket(tempStr1, tempStr2, tempInt);
+        case 2: // Book New Ticket (Multi-Group)
+            // Calls the coordinator function
+            manager.coordinateMultipleBookings();
             break;
             
         case 3: // View Booking
@@ -884,23 +1189,28 @@ void runUserActions(RailwayManager& manager, bool& running, User* currentUser, b
             manager.viewBookingByPNR(tempStr1);
             break;
 
-        case 4: // Cancel Booking
+        case 4: // Cancel Booking (with Refund)
             cout << "Enter PNR to cancel booking: "; cin >> tempStr1;
             manager.cancelBooking(tempStr1);
             break;
+            
+        case 5: // View Transaction History
+            cout << "Enter PNR to view transaction history: "; cin >> tempStr1;
+            manager.viewTransactionHistory(tempStr1);
+            break;
         
-        case 5: // Switch User
+        case 6: // Switch User
             shouldSwitch = true;
             cout << "\n➡️ Switching user..." << endl;
             break;
             
-        case 6: // Exit System
+        case 7: // Exit System
             running = false;
             cout << "\n👋 Thank you for using the Railway Management System. Goodbye!" << endl;
             break;
 
         default:
-            cout << "\n⚠️ Invalid choice. Please try again (1-6)." << endl;
+            cout << "\n⚠️ Invalid choice. Please try again (1-7)." << endl;
             break;
     }
 }
@@ -932,22 +1242,34 @@ void runAdminActions(RailwayManager& manager, bool& running, User* currentUser, 
             manager.removeTrain(tempStr1);
             break;
             
-        case 5: // View All Bookings (Placeholder)
-            cout << "\n⚠️ Feature not fully implemented. Reviewing all bookings requires a dedicated admin view." << endl;
+        case 5: // View All Bookings (NEW FEATURE)
+            manager.viewAllBookings();
             break;
 
-        case 6: // Switch User
+        case 6: { // Process Waitlist (Manual)
+            string tNum, date;
+            cout << "Enter Train Number for WL promotion: "; cin >> tNum;
+            cout << "Enter Date (MM/DD/YYYY): "; cin >> date;
+            if (isValidDate(date)) {
+                manager.processWaitlistManual(tNum, date);
+            } else {
+                cout << "❌ Invalid Date Format." << endl;
+            }
+            break;
+        }
+
+        case 7: // Switch User
             shouldSwitch = true;
             cout << "\n➡️ Switching user..." << endl;
             break;
             
-        case 7: // Exit System
+        case 8: // Exit System
             running = false;
             cout << "\n👋 Thank you for using the Railway Management System. Goodbye!" << endl;
             break;
 
         default:
-            cout << "\n⚠️ Invalid choice. Please try again (1-7)." << endl;
+            cout << "\n⚠️ Invalid choice. Please try again (1-8)." << endl;
             break;
     }
 }

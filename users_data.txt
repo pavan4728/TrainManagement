@@ -1,0 +1,2 @@
+Admin|admin|123
+Customer|user|123

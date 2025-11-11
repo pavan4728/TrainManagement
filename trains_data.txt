@@ -1,0 +1,3 @@
+EXPRESS|ET001|Fast Express|CityA|CityB|10|55.000000|1|0#|1:11/11/2025|10;
+EXPRESS|SR205|Slow Runner|CityB|CityC|50|75.500000|0|0#|1:11/11/2025|50;
+EXPRESS|et003|nagpur to mumbai|nagpur|mumbai|20|500.000000|1|1#diwali markup,01/12/2026,1.250000@|2:11/11/2025|20;01/12/2026|20;
